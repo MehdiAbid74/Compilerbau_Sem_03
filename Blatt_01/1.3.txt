@@ -1,0 +1,137 @@
+1.3
+python:
+^[+-]?((\d+(\.\d*)?)|(\.\d+))([eE][+-]?\d+)?$
+
+REguläre Grammatik:
+S  -> +S | -S | N
+N  -> I R | .F R
+R  -> E | ε | .AF E | .AF
+I  -> 0I | 1I | 2I | 3I | 4I | 5I | 6I | 7I | 8I | 9I | D
+D  -> 0D | 1D | 2D | 3D | 4D | 5D | 6D | 7D | 8D | 9D | ε
+F  -> 0F | 1F | 2F | 3F | 4F | 5F | 6F | 7F | 8F | 9F | G
+G  -> 0G | 1G | 2G | 3G | 4G | 5G | 6G | 7G | 8G | 9G | ε
+AF -> F
+E  -> e ES ED | Ecap
+Ecap -> E' ED
+ES -> + | - | ε
+ED -> 0ED | 1ED | 2ED | 3ED | 4ED | 5ED | 6ED | 7ED | 8ED | 9ED | H
+H  -> 0H | 1H | 2H | 3H | 4H | 5H | 6H | 7H | 8H | 9H | ε
+
+DFA (graph viz):
+digraph PythonFloat {
+  rankdir=LR;
+  node [shape = doublecircle]; A_accept E_accept F_accept;
+  node [shape = circle];
+
+  start -> S [label="ε"];
+
+  S -> SIGN [label="+,- (opt)"];
+  S -> INT [label="digit"];
+  S -> DOT_START [label="."];
+
+  SIGN -> INT [label="digit"];
+  SIGN -> DOT_START [label="."];
+
+  INT -> INT [label="digit"];
+  INT -> DOT [label="."];
+  INT -> EXP_START [label="e,E"];
+  INT -> A_accept [label="(end)"];
+
+  DOT -> FRAC [label="digit"];
+  DOT -> F_accept [label="(if no frac digits)"]; // allows 123.
+
+  DOT_START -> FRAC [label="digit"];
+
+  FRAC -> FRAC [label="digit"];
+  FRAC -> EXP_START [label="e,E"];
+  FRAC -> F_accept [label="(end)"];
+
+  EXP_START -> EXP_SIGN [label="+,- (opt)"];
+  EXP_START -> EXP_DIGIT [label="digit"];
+
+  EXP_SIGN -> EXP_DIGIT [label="digit"];
+
+  EXP_DIGIT -> EXP_DIGIT [label="digit"];
+  EXP_DIGIT -> E_accept [label="(end)"];
+
+  // accepting nodes
+  A_accept [label="accept_int_no_exp", shape=doublecircle];
+  F_accept [label="accept_frac", shape=doublecircle];
+  E_accept [label="accept_exp", shape=doublecircle];
+
+  // edges to accepting states (explicit)
+  INT -> A_accept [label="(end)"];
+  FRAC -> F_accept [label="(end)"];
+  EXP_DIGIT -> E_accept [label="(end)"];
+}
+
+java:
+^[+-]?((\d+(\.\d*)?)|(\.\d+))([eE][+-]?\d+)?[fFdD]?$
+
+Grammatik:
+S  -> +S | -S | N
+N  -> I T | .FR T
+T  -> .FR Eopt SUF | Eopt SUF | SUF | ε
+I  -> 0I | 1I | 2I | 3I | 4I | 5I | 6I | 7I | 8I | 9I | D
+D  -> 0D | 1D | 2D | 3D | 4D | 5D | 6D | 7D | 8D | 9D | ε
+FR -> 0FR | 1FR | 2FR | 3FR | 4FR | 5FR | 6FR | 7FR | 8FR | 9FR | G
+G  -> 0G | 1G | 2G | 3G | 4G | 5G | 6G | 7G | 8G | 9G | ε
+Eopt -> E | ε
+E   -> e ES ED
+ES  -> + | - | ε
+ED  -> 0ED | 1ED | 2ED | 3ED | 4ED | 5ED | 6ED | 7ED | 8ED | 9ED | H
+H   -> 0H | 1H | 2H | 3H | 4H | 5H | 6H | 7H | 8H | 9H | ε
+SUF -> f | F | d | D | ε
+
+
+DFA:
+digraph JavaFloat {
+  rankdir=LR;
+  node [shape = doublecircle]; A_accept J_exp_accept J_frac_accept J_suf_accept;
+  node [shape = circle];
+
+  start -> S [label="ε"];
+
+  S -> SIGN [label="+,- (opt)"];
+  S -> INT [label="digit"];
+  S -> DOT_START [label="."];
+
+  SIGN -> INT [label="digit"];
+  SIGN -> DOT_START [label="."];
+
+  INT -> INT [label="digit"];
+  INT -> DOT [label="."];
+  INT -> EXP_START [label="e,E"];
+  INT -> A_accept [label="(end)"];
+
+  DOT -> FRAC [label="digit"];
+  DOT -> J_dot_accept [label="(accept 123.)"];
+
+  DOT_START -> FRAC [label="digit"];
+
+  FRAC -> FRAC [label="digit"];
+  FRAC -> EXP_START [label="e,E"];
+  FRAC -> J_frac_accept [label="(end)"];
+
+  EXP_START -> EXP_SIGN [label="+,- (opt)"];
+  EXP_START -> EXP_DIGIT [label="digit"];
+
+  EXP_SIGN -> EXP_DIGIT [label="digit"];
+
+  EXP_DIGIT -> EXP_DIGIT [label="digit"];
+  EXP_DIGIT -> J_exp_accept [label="(end)"];
+
+  // suffix handling (fFdD)
+  A_accept -> SUF [label="f/F/d/D (opt)"];
+  J_frac_accept -> SUF [label="f/F/d/D (opt)"];
+  J_exp_accept -> SUF [label="f/F/d/D (opt)"];
+  SUF -> J_suf_accept [label="(if suffix)"];
+  SUF -> J_suf_accept [label="(if ε)"];
+
+  // accepting nodes
+  A_accept [label="accept_int_no_exp", shape=doublecircle];
+  J_frac_accept [label="accept_frac", shape=doublecircle];
+  J_exp_accept [label="accept_exp", shape=doublecircle];
+  J_suf_accept [label="accept_final", shape=doublecircle];
+}
+
