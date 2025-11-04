@@ -1,0 +1,212 @@
+1) AST-Definition (Datei: Ast.java)
+import java.util.List;
+
+public final class Ast {
+
+    // ---- Basistypen ----
+    public sealed interface Node permits Program, Stmt, Expr {}
+    public static record Program(List<Stmt> statements) implements Node {}
+
+    public sealed interface Stmt extends Node permits Assign, If, While {}
+    public sealed interface Expr extends Node permits BinOp, Unary, Paren, IntLit, Var {}
+
+    // ---- Statements ----
+    public static record Assign(String id, Expr expr) implements Stmt {}
+    public static record If(Expr cond, List<Stmt> thenBlock, List<Stmt> elseBlockOrNull) implements Stmt {}
+    public static record While(Expr cond, List<Stmt> body) implements Stmt {}
+
+    // ---- Ausdrücke ----
+    public enum BinOpKind { PLUS, MINUS, MUL, DIV, MOD, LT, LE, GT, GE, EQ, NE }
+    public static record BinOp(Expr left, BinOpKind op, Expr right) implements Expr {}
+    public static record Unary(String op, Expr expr) implements Expr {}              // op = "-"
+    public static record Paren(Expr inner) implements Expr {}
+    public static record IntLit(int value) implements Expr {}
+    public static record Var(String name) implements Expr {}
+
+2) Parse-Tree → AST (Datei: AstBuilder.java)
+import java.util.ArrayList;
+import java.util.List;
+
+public class AstBuilder extends MiniLangBaseVisitor<Ast.Node> {
+
+    // Eintrittspunkt: gesamtes Programm
+    @Override
+    public Ast.Program visitProgram(MiniLangParser.ProgramContext ctx) {
+        List<Ast.Stmt> stmts = new ArrayList<>();
+        for (var s : ctx.stmt()) stmts.add(visitStmtRet(s));
+        return new Ast.Program(stmts);
+    }
+
+    private Ast.Stmt visitStmtRet(MiniLangParser.StmtContext ctx) {
+        return (Ast.Stmt) visit(ctx);
+    }
+
+    // ----- Statements -----
+
+    @Override
+    public Ast.Assign visitAssign(MiniLangParser.AssignContext ctx) {
+        String id = ctx.ID().getText();
+        Ast.Expr e = visitExprRet(ctx.expr());
+        return new Ast.Assign(id, e);
+    }
+
+    @Override
+    public Ast.If visitIfStmt(MiniLangParser.IfStmtContext ctx) {
+        Ast.Expr cond = visitExprRet(ctx.expr());
+        List<Ast.Stmt> thenBlock = visitBlockRet(ctx.block(0));
+        List<Ast.Stmt> elseBlock = (ctx.block().size() == 2) ? visitBlockRet(ctx.block(1)) : null;
+        return new Ast.If(cond, thenBlock, elseBlock);
+    }
+
+    @Override
+    public Ast.While visitWhileStmt(MiniLangParser.WhileStmtContext ctx) {
+        Ast.Expr cond = visitExprRet(ctx.expr());
+        List<Ast.Stmt> body = visitBlockRet(ctx.block());
+        return new Ast.While(cond, body);
+    }
+
+    @Override
+    public List<Ast.Stmt> visitBlock(MiniLangParser.BlockContext ctx) {
+        List<Ast.Stmt> stmts = new ArrayList<>();
+        for (var s : ctx.stmt()) stmts.add(visitStmtRet(s));
+        return stmts;
+    }
+
+    // ----- Ausdrücke -----
+
+    private Ast.Expr visitExprRet(MiniLangParser.ExprContext ctx) {
+        return (Ast.Expr) visit(ctx);
+    }
+
+    @Override
+    public Ast.BinOp visitCmpExpr(MiniLangParser.CmpExprContext ctx) {
+        Ast.Expr l = visitExprRet(ctx.expr(0));
+        Ast.Expr r = visitExprRet(ctx.expr(1));
+        String op = ctx.op.getText();
+        return new Ast.BinOp(l, switch (op) {
+            case "<"  -> Ast.BinOpKind.LT;
+            case "<=" -> Ast.BinOpKind.LE;
+            case ">"  -> Ast.BinOpKind.GT;
+            case ">=" -> Ast.BinOpKind.GE;
+            case "==" -> Ast.BinOpKind.EQ;
+            case "!=" -> Ast.BinOpKind.NE;
+            default -> throw new IllegalStateException("Unbekannter Vergleichsoperator: " + op);
+        }, r);
+    }
+
+    @Override
+    public Ast.BinOp visitAddExpr(MiniLangParser.AddExprContext ctx) {
+        Ast.Expr l = visitExprRet(ctx.expr(0));
+        Ast.Expr r = visitExprRet(ctx.expr(1));
+        String op = ctx.op.getText();
+        return new Ast.BinOp(l, op.equals("+") ? Ast.BinOpKind.PLUS : Ast.BinOpKind.MINUS, r);
+    }
+
+    @Override
+    public Ast.BinOp visitMulExpr(MiniLangParser.MulExprContext ctx) {
+        Ast.Expr l = visitExprRet(ctx.expr(0));
+        Ast.Expr r = visitExprRet(ctx.expr(1));
+        String op = ctx.op.getText();
+        return new Ast.BinOp(l, switch (op) {
+            case "*" -> Ast.BinOpKind.MUL;
+            case "/" -> Ast.BinOpKind.DIV;
+            case "%" -> Ast.BinOpKind.MOD;
+            default -> throw new IllegalStateException("Unbekannter Mul-Op: " + op);
+        }, r);
+    }
+
+    @Override
+    public Ast.Unary visitUnaryMinus(MiniLangParser.UnaryMinusContext ctx) {
+        return new Ast.Unary("-", visitExprRet(ctx.expr()));
+    }
+
+    @Override
+    public Ast.Paren visitParenExpr(MiniLangParser.ParenExprContext ctx) {
+        return new Ast.Paren(visitExprRet(ctx.expr()));
+    }
+
+    @Override
+    public Ast.IntLit visitIntAtom(MiniLangParser.IntAtomContext ctx) {
+        return new Ast.IntLit(Integer.parseInt(ctx.INT().getText()));
+    }
+
+    @Override
+    public Ast.Var visitIdAtom(MiniLangParser.IdAtomContext ctx) {
+        return new Ast.Var(ctx.ID().getText());
+    }
+}
+3) Pretty-Printer für den AST (Datei: PrettyPrinterAst.java)
+import java.util.List;
+import java.util.stream.Collectors;
+
+public class PrettyPrinterAst {
+
+    private final String INDENT_UNIT = "    ";
+    private int indent = 0;
+
+    private String i() { return INDENT_UNIT.repeat(indent); }
+
+    public String print(Ast.Program p) {
+        return p.statements().stream()
+                .map(this::print)
+                .collect(Collectors.joining("\n"));
+    }
+
+    private String print(Ast.Stmt s) {
+        if (s instanceof Ast.Assign a) {
+            return i() + a.id() + " := " + print(a.expr());
+        } else if (s instanceof Ast.If iff) {
+            StringBuilder b = new StringBuilder();
+            b.append(i()).append("if ").append(print(iff.cond())).append(" do\n");
+            indent++;
+            b.append(printBlock(iff.thenBlock()));
+            indent--;
+            if (iff.elseBlockOrNull() != null) {
+                b.append("\n").append(i()).append("else do\n");
+                indent++;
+                b.append(printBlock(iff.elseBlockOrNull()));
+                indent--;
+            }
+            b.append("\n").append(i()).append("end");
+            return b.toString();
+        } else if (s instanceof Ast.While w) {
+            StringBuilder b = new StringBuilder();
+            b.append(i()).append("while ").append(print(w.cond())).append(" do\n");
+            indent++;
+            b.append(printBlock(w.body()));
+            indent--;
+            b.append("\n").append(i()).append("end");
+            return b.toString();
+        }
+        throw new IllegalStateException("Unbekanntes Stmt: " + s.getClass());
+    }
+
+    private String printBlock(List<Ast.Stmt> block) {
+        return block.stream().map(this::print).collect(Collectors.joining("\n"));
+    }
+
+    private String print(Ast.Expr e) {
+        if (e instanceof Ast.IntLit lit) return Integer.toString(lit.value());
+        if (e instanceof Ast.Var v)     return v.name();
+        if (e instanceof Ast.Unary u)   return u.op() + print(u.expr());
+        if (e instanceof Ast.Paren p)   return "(" + print(p.inner()) + ")";
+        if (e instanceof Ast.BinOp b)   return print(b.left()) + " " + opStr(b.op()) + " " + print(b.right());
+        throw new IllegalStateException("Unbekannter Expr: " + e.getClass());
+    }
+
+    private String opStr(Ast.BinOpKind k) {
+        return switch (k) {
+            case PLUS -> "+";
+            case MINUS -> "-";
+            case MUL -> "*";
+            case DIV -> "/";
+            case MOD -> "%";
+            case LT -> "<";
+            case LE -> "<=";
+            case GT -> ">";
+            case GE -> ">=";
+            case EQ -> "==";
+            case NE -> "!=";
+        };
+    }
+}

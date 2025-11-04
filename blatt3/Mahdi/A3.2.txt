@@ -1,0 +1,195 @@
+Grammatik
+grammar MiniLang;
+
+// ===== Parser-Regeln =====
+
+program
+    : (NEWLINE* stmt (NEWLINE+ stmt)* NEWLINE*)? EOF
+    ;
+
+stmt
+    : assign
+    | ifStmt
+    | whileStmt
+    ;
+
+assign
+    : ID ':=' expr
+    ;
+
+ifStmt
+    : 'if' expr 'do' NEWLINE* block ('else' 'do' NEWLINE* block)? 'end'
+    ;
+
+whileStmt
+    : 'while' expr 'do' NEWLINE* block 'end'
+    ;
+
+block
+    : stmt (NEWLINE+ stmt)*
+    ;
+
+// Ausdruck mit üblicher Präzedenz
+expr
+    : expr op=('<' | '<=' | '>' | '>=' | '==' | '!=') expr   # cmpExpr
+    | expr op=('+' | '-') expr                               # addExpr
+    | expr op=('*' | '/' | '%') expr                         # mulExpr
+    | '-' expr                                               # unaryMinus
+    | '(' expr ')'                                           # parenExpr
+    | INT                                                    # intAtom
+    | ID                                                     # idAtom
+    ;
+
+// ===== Lexer-Regeln =====
+
+ID      : [a-zA-Z_] [a-zA-Z_0-9]* ;
+INT     : [0-9]+ ;
+
+NEWLINE : ('\r'? '\n')+ ;
+WS      : [ \t\f]+ -> skip ;
+COMMENT : '#' ~[\r\n]* -> skip ;
+
+// Schlüsselwörter bewusst nicht als Tokens reserviert, damit ID simple bleibt
+
+Pretty-Printer:
+
+import java.util.List;
+import java.util.stream.Collectors;
+
+public class PrettyPrinter extends MiniLangBaseVisitor<String> {
+
+    private final String INDENT_UNIT = "    "; // 4 Leerzeichen
+    private int indent = 0;
+
+    private String i() {
+        return INDENT_UNIT.repeat(indent);
+    }
+
+    @Override
+    public String visitProgram(MiniLangParser.ProgramContext ctx) {
+        if (ctx == null || ctx.children == null) return "";
+        // Programm kann leer sein
+        if (ctx.stmt().isEmpty()) return "";
+        return ctx.stmt().stream()
+                .map(s -> visit(s))
+                .collect(Collectors.joining("\n"));
+    }
+
+    @Override
+    public String visitAssign(MiniLangParser.AssignContext ctx) {
+        return i() + ctx.ID().getText() + " := " + visit(ctx.expr());
+    }
+
+    @Override
+    public String visitIfStmt(MiniLangParser.IfStmtContext ctx) {
+        StringBuilder out = new StringBuilder();
+        // "if <expr> do"
+        out.append(i()).append("if ").append(visit(ctx.expr())).append(" do").append("\n");
+        // then-block
+        indent++;
+        out.append(visit(ctx.block(0)));
+        indent--;
+        // optional else
+        if (ctx.block().size() == 2) {
+            out.append("\n").append(i()).append("else do").append("\n");
+            indent++;
+            out.append(visit(ctx.block(1)));
+            indent--;
+        }
+        out.append("\n").append(i()).append("end");
+        return out.toString();
+    }
+
+    @Override
+    public String visitWhileStmt(MiniLangParser.WhileStmtContext ctx) {
+        StringBuilder out = new StringBuilder();
+        out.append(i()).append("while ").append(visit(ctx.expr())).append(" do").append("\n");
+        indent++;
+        out.append(visit(ctx.block()));
+        indent--;
+        out.append("\n").append(i()).append("end");
+        return out.toString();
+    }
+
+    @Override
+    public String visitBlock(MiniLangParser.BlockContext ctx) {
+        // block: stmt (NEWLINE+ stmt)*
+        List<MiniLangParser.StmtContext> stmts = ctx.stmt();
+        return stmts.stream().map(this::visit).collect(Collectors.joining("\n"));
+    }
+
+    // ===== Ausdrücke (infix) =====
+
+    @Override
+    public String visitCmpExpr(MiniLangParser.CmpExprContext ctx) {
+        return visit(ctx.expr(0)) + " " + ctx.op.getText() + " " + visit(ctx.expr(1));
+    }
+
+    @Override
+    public String visitAddExpr(MiniLangParser.AddExprContext ctx) {
+        return visit(ctx.expr(0)) + " " + ctx.op.getText() + " " + visit(ctx.expr(1));
+    }
+
+    @Override
+    public String visitMulExpr(MiniLangParser.MulExprContext ctx) {
+        return visit(ctx.expr(0)) + " " + ctx.op.getText() + " " + visit(ctx.expr(1));
+    }
+
+    @Override
+    public String visitUnaryMinus(MiniLangParser.UnaryMinusContext ctx) {
+        return "-" + visit(ctx.expr());
+    }
+
+    @Override
+    public String visitParenExpr(MiniLangParser.ParenExprContext ctx) {
+        return "(" + visit(ctx.expr()) + ")";
+    }
+
+    @Override
+    public String visitIntAtom(MiniLangParser.IntAtomContext ctx) {
+        return ctx.INT().getText();
+    }
+
+    @Override
+    public String visitIdAtom(MiniLangParser.IdAtomContext ctx) {
+        return ctx.ID().getText();
+    }
+}
+Main/Runner
+import org.antlr.v4.runtime.*;
+import org.antlr.v4.runtime.tree.*;
+import java.nio.file.*;
+import java.io.*;
+
+public class Main {
+    public static void main(String[] args) throws Exception {
+        CharStream input;
+        if (args.length > 0) {
+            input = CharStreams.fromPath(Paths.get(args[0]));
+        } else {
+            input = CharStreams.fromStream(System.in);
+        }
+
+        MiniLangLexer lexer = new MiniLangLexer(input);
+        CommonTokenStream tokens = new CommonTokenStream(lexer);
+        MiniLangParser parser = new MiniLangParser(tokens);
+
+        // Optional: Fehlermeldungen etwas netter machen
+        parser.removeErrorListeners();
+        parser.addErrorListener(new BaseErrorListener() {
+            @Override
+            public void syntaxError(Recognizer<?, ?> recognizer, Object offendingSymbol,
+                                    int line, int charPositionInLine, String msg, RecognitionException e) {
+                System.err.println("Syntaxfehler in Zeile " + line + ":" + charPositionInLine + " -> " + msg);
+                System.exit(1);
+            }
+        });
+
+        ParseTree tree = parser.program();
+        PrettyPrinter pp = new PrettyPrinter();
+        String pretty = pp.visit(tree);
+        // Leer-/Trailing-Newlines vermeiden
+        System.out.println(pretty.strip());
+    }
+}
+

@@ -1,0 +1,64 @@
+grammar MeineGrammar;
+
+// --- Programmstruktur ---
+programm : statement+ EOF ;
+
+// --- Anweisungen ---
+statement
+    : variable ':=' expression NEWLINE            # assignmentStmt
+    | ifStatement                                 # ifStmt
+    | whileStatement                              # whileStmt
+    | NEWLINE                                     # emptyLine
+    ;
+
+// --- Kontrollstrukturen ---
+ifStatement
+    : IF bedingung DO statement+ NEWLINE? (ELSE DO statement+)? END
+    ;
+
+
+
+whileStatement
+    : WHILE bedingung DO statement* END
+    ;
+
+
+
+// --- Bedingungen ---
+bedingung
+    : vergleich ( ('and' | 'or') vergleich )*
+    ;
+
+DO     : 'do' ;
+END    : 'end' ;
+IF     : 'if' ;
+ELSE   : 'else' ;
+WHILE  : 'while' ;
+
+
+// --- Ausdrücke ---
+expression
+    : variable
+    | STRING
+    | NUMBERS
+    | vergleich
+    | rechnung
+    ;
+
+// --- Vergleich und Rechnung ---
+vergleich : variable vergleichsOperanten variable ;
+rechnung  : variable rechnungsOperanten variable;
+
+vergleichsOperanten : '==' | '!=' | '<' | '>' ;
+rechnungsOperanten  : '+' | '-' | '*' | '/' ;
+
+// --- Variablen ---
+variable : BEZEICHNER | NUMBERS;
+
+// --- Lexer ---
+NEWLINE : '\r'? '\n' ;
+NUMBERS : [0-9]+ ;
+BEZEICHNER : [a-zA-Z_][a-zA-Z0-9_]* ;
+STRING : '"' ( '\\' . | ~["\\\r\n] )* '"' ;
+COMMENT : ('//'|'#') ~[\r\n]* -> skip ;
+WS : [ \t]+ -> skip ;
